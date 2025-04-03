@@ -1,16 +1,23 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions, Alert, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Dimensions, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef } from 'react';
 import type { ScrollView as ScrollViewType } from 'react-native';
-import { getCourseById, getLessonsByCourseId, Course, Lesson, createBookmark, deleteBookmark, isCourseBookmarked, getBookmarksByUserId, Bookmark, getEnrollmentsByUserId, Enrollment, createEnrollment } from '@/lib/appwrite-db';
+import { getCourseById, getLessonsByCourseId, Course, Lesson, createBookmark, deleteBookmark, isCourseBookmarked, getBookmarksByUserId, Bookmark, getEnrollmentsByUserId, Enrollment, createEnrollment, databases } from '@/lib/appwrite-db';
 import { useGlobalContext } from '@/lib/global-provider';
+import { Query } from 'appwrite';
 import Animated, { 
   useAnimatedStyle, 
   withSequence, 
   withTiming, 
   useSharedValue 
 } from 'react-native-reanimated';
+
+interface Subfolder {
+  $id: string;
+  name: string;
+  order: number;
+}
 
 export default function CourseDetails() {
   const { id } = useLocalSearchParams();
@@ -19,6 +26,7 @@ export default function CourseDetails() {
   const [activeTab, setActiveTab] = useState('Curriculum');
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [subfolders, setSubfolders] = useState<Subfolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [isEnrolled, setIsEnrolled] = useState(false);
@@ -27,13 +35,34 @@ export default function CourseDetails() {
   const [bookmarkId, setBookmarkId] = useState('');
   const [isBookmarkLoading, setIsBookmarkLoading] = useState(false);
   const bookmarkScale = useSharedValue(1);
+  const [loadingLessons, setLoadingLessons] = useState(false);
+  const [loadingSubfolders, setLoadingSubfolders] = useState(false);
+  const [hasMoreLessons, setHasMoreLessons] = useState(true);
+  const [page, setPage] = useState(1);
+  const lessonsPerPage = 10;
 
   const loadCourseData = async () => {
       try {
         const courseData = await getCourseById(id as string);
+        console.log('Course Data:', courseData); // Debug log
         const lessonsData = await getLessonsByCourseId(id as string);
+        
+        // Fetch subfolders for this course only
+        const subfoldersData = await databases.listDocuments(
+          process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID!,
+          '67eda5a5001a7d00e677',
+          [
+            Query.equal('courseId', id as string)
+          ]
+        );
+        
         setCourse(courseData);
         setLessons(lessonsData.documents);
+        setSubfolders(subfoldersData.documents.map(doc => ({
+          $id: doc.$id,
+          name: doc.name as string,
+          order: doc.order as number
+        })));
       
       if (user?.$id) {
         await checkBookmarkStatus();
@@ -41,11 +70,11 @@ export default function CourseDetails() {
       }
       } catch (error) {
         console.error('Error fetching course data:', error);
-      Alert.alert('Error', 'Failed to load course data. Please try again.');
+        Alert.alert('Error', 'Failed to load course data. Please try again.');
       } finally {
         setLoading(false);
-      setRefreshing(false);
-    }
+        setRefreshing(false);
+      }
   };
 
   const loadEnrollmentStatus = async () => {
@@ -61,8 +90,65 @@ export default function CourseDetails() {
     }
   };
 
+  const loadLessons = async (pageNum: number = 1) => {
+    if (loadingLessons || !hasMoreLessons) return;
+    
+    setLoadingLessons(true);
+    try {
+      const response = await databases.listDocuments(
+        process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID!,
+        '67eda5a5001a7d00e677',
+        [
+          Query.equal('courseId', id as string),
+          Query.limit(lessonsPerPage),
+          Query.offset((pageNum - 1) * lessonsPerPage)
+        ]
+      );
+
+      const newLessons = response.documents;
+      setLessons(prev => pageNum === 1 ? newLessons : [...prev, ...newLessons]);
+      setHasMoreLessons(newLessons.length === lessonsPerPage);
+      setPage(pageNum);
+    } catch (error) {
+      console.error('Error loading lessons:', error);
+    } finally {
+      setLoadingLessons(false);
+    }
+  };
+
+  const loadSubfolders = async () => {
+    setLoadingSubfolders(true);
+    try {
+      const response = await databases.listDocuments(
+        process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID!,
+        '67eda5a5001a7d00e677',
+        [
+          Query.equal('courseId', id as string)
+        ]
+      );
+      
+      setSubfolders(response.documents.map(doc => ({
+        $id: doc.$id,
+        name: doc.name as string,
+        order: doc.order as number
+      })));
+    } catch (error) {
+      console.error('Error loading subfolders:', error);
+    } finally {
+      setLoadingSubfolders(false);
+    }
+  };
+
+  const loadMoreLessons = () => {
+    if (!loadingLessons && hasMoreLessons) {
+      loadLessons(page + 1);
+    }
+  };
+
   useEffect(() => {
     loadCourseData();
+    loadLessons(1);
+    loadSubfolders();
   }, [id, user]);
 
   const onRefresh = () => {
@@ -226,14 +312,18 @@ export default function CourseDetails() {
     );
   }
 
-  // Group lessons by section
+  // Group lessons by subfolder
   const groupedLessons = lessons.reduce((acc, lesson) => {
-    if (!acc[lesson.section]) {
-      acc[lesson.section] = [];
+    const subfolderId = lesson.subfolderId || 'uncategorized';
+    if (!acc[subfolderId]) {
+      acc[subfolderId] = [];
     }
-    acc[lesson.section].push(lesson);
+    acc[subfolderId].push(lesson);
     return acc;
   }, {} as Record<string, Lesson[]>);
+
+  // Sort subfolders by order
+  const sortedSubfolders = [...subfolders].sort((a, b) => a.order - b.order);
 
   return (
     <View style={styles.container}>
@@ -269,10 +359,30 @@ export default function CourseDetails() {
             tintColor="#00B894"
           />
         }
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const paddingToBottom = 20;
+          const isCloseToBottom = layoutMeasurement.height + contentOffset.y >=
+            contentSize.height - paddingToBottom;
+          
+          if (isCloseToBottom) {
+            loadMoreLessons();
+          }
+        }}
+        scrollEventThrottle={400}
       >
         {/* Course Banner */}
         <View style={styles.banner}>
-          <Ionicons name="book-outline" size={48} color="#fff" />
+          {course?.image ? (
+            <Image 
+              source={{ uri: course.image }} 
+              style={styles.bannerImage}
+              resizeMode="cover"
+              onError={(e) => console.log('Image Error:', e.nativeEvent.error)} // Debug log
+            />
+          ) : (
+            <Ionicons name="book-outline" size={48} color="#fff" />
+          )}
         </View>
 
         {/* Course Info */}
@@ -315,7 +425,7 @@ export default function CourseDetails() {
             >
               <Ionicons name="cart-outline" size={24} color="#fff" />
               <Text style={styles.actionButtonText}>Get Enrolled</Text>
-        </TouchableOpacity>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -351,29 +461,31 @@ export default function CourseDetails() {
         >
           {/* Curriculum Tab */}
           <View style={[styles.tabContent, { width: Dimensions.get('window').width }]}>
-          <View style={styles.curriculumContainer}>
-            {Object.entries(groupedLessons).map(([section, sectionLessons]) => (
-                <View key={section} style={styles.sectionContainer}>
+            <View style={styles.curriculumContainer}>
+              {sortedSubfolders.map(subfolder => (
+                <View key={subfolder.$id} style={styles.sectionContainer}>
                   <View style={styles.sectionHeader}>
                     <Ionicons name="folder-outline" size={20} color="#00B894" />
-                <Text style={styles.sectionTitle}>{section}</Text>
-                    <Text style={styles.lessonCount}>{sectionLessons.length} lessons</Text>
+                    <Text style={styles.sectionTitle}>{subfolder.name}</Text>
+                    <Text style={styles.lessonCount}>
+                      {groupedLessons[subfolder.$id]?.length || 0} lessons
+                    </Text>
                   </View>
-                {sectionLessons.map((lesson) => (
+                  {groupedLessons[subfolder.$id]?.map((lesson) => (
                     <TouchableOpacity 
                       key={lesson.$id} 
                       style={styles.lessonItem}
-                      onPress={() => isEnrolled ? router.push(`/lesson/${lesson.$id}`) : null}
+                      onPress={() => isEnrolled ? router.push(`/lesson/${lesson.$id}`) : handleEnroll()}
                     >
-                    <View style={styles.lessonIcon}>
-                      <Ionicons 
-                        name={lesson.type === 'Video' ? 'play-circle-outline' : 'document-text-outline'} 
-                        size={24} 
-                        color="#00B894" 
-                      />
-                    </View>
-                    <View style={styles.lessonInfo}>
-                      <Text style={styles.lessonTitle}>{lesson.title}</Text>
+                      <View style={styles.lessonIcon}>
+                        <Ionicons 
+                          name={lesson.type === 'Video' ? 'play-circle-outline' : 'document-text-outline'} 
+                          size={24} 
+                          color="#00B894" 
+                        />
+                      </View>
+                      <View style={styles.lessonInfo}>
+                        <Text style={styles.lessonTitle}>{lesson.title}</Text>
                         <View style={styles.lessonMetaContainer}>
                           <View style={styles.lessonMeta}>
                             <Ionicons name="time-outline" size={14} color="#666" />
@@ -388,50 +500,85 @@ export default function CourseDetails() {
                             <Text style={styles.lessonMetaText}>{lesson.type}</Text>
                           </View>
                         </View>
-                    </View>
+                      </View>
                       {!isEnrolled ? (
                         <Ionicons name="lock-closed-outline" size={20} color="#666" />
                       ) : (
                         <Ionicons name="chevron-forward" size={20} color="#666" />
                       )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ))}
-          </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
+
+              {/* Uncategorized lessons */}
+              {groupedLessons['uncategorized']?.length > 0 && (
+                <View style={styles.sectionContainer}>
+                  <View style={styles.sectionHeader}>
+                    <Ionicons name="folder-outline" size={20} color="#00B894" />
+                    <Text style={styles.sectionTitle}>Other Lessons</Text>
+                    <Text style={styles.lessonCount}>
+                      {groupedLessons['uncategorized'].length} lessons
+                    </Text>
+                  </View>
+                  {groupedLessons['uncategorized'].map((lesson) => (
+                    <TouchableOpacity 
+                      key={lesson.$id} 
+                      style={styles.lessonItem}
+                      onPress={() => isEnrolled ? router.push(`/lesson/${lesson.$id}`) : handleEnroll()}
+                    >
+                      <View style={styles.lessonIcon}>
+                        <Ionicons 
+                          name={lesson.type === 'Video' ? 'play-circle-outline' : 'document-text-outline'} 
+                          size={24} 
+                          color="#00B894" 
+                        />
+                      </View>
+                      <View style={styles.lessonInfo}>
+                        <Text style={styles.lessonTitle}>{lesson.title}</Text>
+                        <View style={styles.lessonMetaContainer}>
+                          <View style={styles.lessonMeta}>
+                            <Ionicons name="time-outline" size={14} color="#666" />
+                            <Text style={styles.lessonMetaText}>{lesson.duration}</Text>
+                          </View>
+                          <View style={styles.lessonMeta}>
+                            <Ionicons 
+                              name={lesson.type === 'Video' ? 'videocam-outline' : 'document-text-outline'} 
+                              size={14} 
+                              color="#666" 
+                            />
+                            <Text style={styles.lessonMetaText}>{lesson.type}</Text>
+                          </View>
+                        </View>
+                      </View>
+                      {!isEnrolled ? (
+                        <Ionicons name="lock-closed-outline" size={20} color="#666" />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={20} color="#666" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Information Tab */}
           <View style={[styles.tabContent, { width: Dimensions.get('window').width }]}>
-          <View style={styles.informationContainer}>
+            <View style={styles.informationContainer}>
               <View style={styles.infoSection}>
                 <Text style={styles.infoSectionTitle}>About This Course</Text>
                 <Text style={styles.infoText}>{course.description}</Text>
               </View>
-
-              <View style={styles.infoSection}>
-                <Text style={styles.infoSectionTitle}>What You'll Learn</Text>
-                <View style={styles.learningPoints}>
-                  {course.learningPoints?.map((point: string, index: number) => (
-                    <View key={index} style={styles.learningPoint}>
-                      <Ionicons name="checkmark-circle-outline" size={20} color="#00B894" />
-                      <Text style={styles.learningPointText}>{point}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.infoSection}>
-                <Text style={styles.infoSectionTitle}>Course Requirements</Text>
-                <View style={styles.requirementsList}>
-                  <Text style={styles.requirementText}>• Basic computer skills</Text>
-                  <Text style={styles.requirementText}>• No prior experience required</Text>
-                  <Text style={styles.requirementText}>• Dedication to learn and practice</Text>
-                </View>
-              </View>
             </View>
           </View>
         </ScrollView>
+
+        {loadingLessons && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color="#00B894" />
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -469,6 +616,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#00B894',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+  },
+  bannerImage: {
+    width: '100%',
+    height: '100%',
   },
   courseInfo: {
     padding: 16,
@@ -529,13 +681,12 @@ const styles = StyleSheet.create({
   },
   tabs: {
     flexDirection: 'row',
-    marginTop: 24,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   activeTab: {
@@ -568,9 +719,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+    flex: 1,
   },
   lessonCount: {
     fontSize: 14,
@@ -579,8 +731,7 @@ const styles = StyleSheet.create({
   lessonItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    padding: 12,
     backgroundColor: '#fff',
     borderRadius: 8,
     marginBottom: 8,
@@ -605,9 +756,10 @@ const styles = StyleSheet.create({
   lessonMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 8,
+    marginRight: 12,
   },
   lessonMetaText: {
+    marginLeft: 4,
     fontSize: 14,
     color: '#666',
   },
@@ -615,36 +767,21 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   infoSection: {
-    marginBottom: 16,
+    marginBottom: 24,
   },
   infoSectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 12,
+    color: '#333',
   },
   infoText: {
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
   },
-  learningPoints: {
-    gap: 12,
-  },
-  learningPoint: {
-    flexDirection: 'row',
+  loadingContainer: {
+    padding: 20,
     alignItems: 'center',
-  },
-  learningPointText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-    flex: 1,
-  },
-  requirementsList: {
-    gap: 8,
-  },
-  requirementText: {
-    fontSize: 14,
-    color: '#666',
   },
 }); 

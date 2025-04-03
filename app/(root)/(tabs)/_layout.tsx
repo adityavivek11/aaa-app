@@ -8,15 +8,27 @@ export default function TabLayout() {
     screenOptions={{
       tabBarShowLabel: true,
       headerShown: false,
-      tabBarActiveTintColor:"#00B894",  // Default active color (except notification)
-      tabBarInactiveTintColor: "rgb(94, 94, 94)",   // Inactive color for all
+      tabBarActiveTintColor: "#00B894",
+      tabBarInactiveTintColor: "rgb(94, 94, 94)",
       tabBarStyle: {
         backgroundColor: "white",
         borderTopWidth: 0,
         position: "absolute",
-        elevation: 0,
-        height: 50,
-        paddingBottom: 20,
+        elevation: 10,
+        height: 60,
+        bottom: 20,
+        left: 20,
+        right: 20,
+        borderRadius: 30,
+        paddingBottom: 10,
+        paddingTop: 5,
+        shadowColor: "#000",
+        shadowOffset: {
+          width: 0,
+          height: 4,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
       },
     }}
   >

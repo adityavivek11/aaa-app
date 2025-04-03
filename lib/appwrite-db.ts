@@ -1,6 +1,8 @@
 import { databases, ID, Query } from "./appwrite";
 import { config } from "./appwrite";
 
+export { databases };
+
 // Collection IDs
 export const COLLECTIONS = {
   USERS: "users",
@@ -11,6 +13,7 @@ export const COLLECTIONS = {
   TEACHERS: "67e5abbf00370f54a9b5",
   DOUBTS: "67e5f8bf002522bb1b3a",
   DOUBT_REPLIES: "67e64c40003e69974dcb",
+  SUBFOLDERS: "67eda5a5001a7d00e677",
 } as const;
 
 // Interfaces
@@ -21,10 +24,13 @@ export interface Course {
   title: string;
   description: string;
   thumbnailUrl: string;
+  imageUrl: string;
   instructorName: string;
   duration: string;
   rating: number;
   learningPoints: string[];
+  learningObjectives: string;
+  requirements: string;
   instructor: string;
   teacherId: string;
   totalLessons: number;
@@ -45,6 +51,7 @@ export interface Lesson {
   type: "Video" | "Quiz";
   order: number;
   section: string;
+  subfolderId?: string;
   videoUrl?: string;
 }
 

@@ -1,60 +1,97 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image } from "react-native";
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image, Dimensions, Platform, RefreshControl } from "react-native";
 import { useGlobalContext } from "@/lib/global-provider";
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from "expo-router";
-import { useState, useEffect } from 'react';
-import { getCourses, getTeachers, Course, Teacher } from '@/lib/appwrite-db';
+import { useState, useEffect, useRef } from 'react';
+import { getCourses, Course } from '@/lib/appwrite-db';
+import Carousel from 'react-native-reanimated-carousel';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { 
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 
-interface QuickActionButtonProps {
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+interface CarouselItem {
+  id: string;
+  title: string;
   icon: keyof typeof Ionicons.glyphMap;
-  title: 'My Courses' | 'Teachers' | 'Bookmarks' | 'Feedback';
-  onPress: () => void;
+  color: string;
 }
 
-const QuickActionButton = ({ icon, title, onPress }: QuickActionButtonProps) => (
-  <TouchableOpacity style={styles.quickActionButton} onPress={onPress}>
-    <View style={[styles.quickActionIcon, { backgroundColor: getIconBackground(title) }]}>
-      <Ionicons name={icon} size={24} color="#333" />
-    </View>
-    <Text style={styles.quickActionText}>{title}</Text>
-  </TouchableOpacity>
-);
-
-const getIconBackground = (title: QuickActionButtonProps['title']) => {
-  const colors = {
-    'My Courses': '#E8F3FF',
-    'Teachers': '#FFE8F3',
-    'Bookmarks': '#F3FFE8',
-    'Feedback': '#FFE8E8'
-  } as const;
-  return colors[title];
-};
+const carouselData: CarouselItem[] = [
+  {
+    id: '1',
+    title: 'Get To Know Ayurveda ??',
+    icon: 'leaf-outline',
+    color: '#4CAF50',
+  },
+  {
+    id: '2',
+    title: 'Learn Meditation',
+    icon: 'body-outline',
+    color: '#9C27B0',
+  },
+  {
+    id: '3',
+    title: 'Yoga Basics',
+    icon: 'fitness-outline',
+    color: '#FF9800',
+  },
+];
 
 export default function Index() {
   const { user } = useGlobalContext();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+
+  const loadCourses = async () => {
+    try {
+      const response = await getCourses();
+      setCourses(response.documents);
+    } catch (error) {
+      console.error('Error loading courses:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [coursesResponse, teachersResponse] = await Promise.all([
-          getCourses(),
-          getTeachers()
-        ]);
-        setCourses(coursesResponse.documents);
-        setTeachers(teachersResponse.documents);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+    loadCourses();
   }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadCourses();
+  };
+
+  const renderCarouselItem = ({ item }: { item: CarouselItem }) => (
+    <TouchableOpacity 
+      style={[styles.carouselItem, { backgroundColor: item.color }]}
+      onPress={() => {
+        // Handle carousel item press
+      }}
+    >
+      <Ionicons name={item.icon} size={48} color="white" style={styles.carouselIcon} />
+      <View style={styles.carouselContent}>
+        <Text style={styles.carouselTitle}>{item.title}</Text>
+      </View>
+    </TouchableOpacity>
+  );
 
   if (loading) {
     return (
@@ -65,227 +102,294 @@ export default function Index() {
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Welcome Section */}
-      <View style={styles.welcomeSection}>
-        <Text style={styles.welcomeText}>Welcome back,</Text>
-        <Text style={styles.userName}>{user?.name || 'Student'}</Text>
-      </View>
+    <LinearGradient
+      colors={['#E5FAF5', '#ffffff']}
+      style={styles.container}
+    >
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#00B894']}
+            tintColor="#00B894"
+          />
+        }
+      >
+        {/* Greeting Section */}
+        <View style={styles.greetingSection}>
+          <Text style={styles.greeting}>{getGreeting()},</Text>
+          <Text style={styles.username}>{user?.name || 'Student'}</Text>
+        </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search-outline" size={20} color="#666" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search courses..."
-          placeholderTextColor="#666"
-        />
-      </View>
+        {/* Carousel Section */}
+        <View style={styles.carouselContainer}>
+          <Carousel
+            loop
+            width={SCREEN_WIDTH - 32}
+            height={200}
+            autoPlay={true}
+            data={carouselData}
+            scrollAnimationDuration={1000}
+            onSnapToItem={(index) => setActiveCarouselIndex(index)}
+            renderItem={renderCarouselItem}
+          />
+          <View style={styles.pagination}>
+            {carouselData.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.paginationDot,
+                  index === activeCarouselIndex && styles.paginationDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
 
-      {/* Featured Courses */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Featured Courses</Text>
-        <TouchableOpacity style={styles.filterButton}>
-          <Ionicons name="options-outline" size={20} color="#333" />
-          <Text style={styles.filterText}>Filters</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.coursesGrid}>
-        {courses.slice(0, 2).map(course => (
-          <TouchableOpacity 
-            key={course.$id} 
-            style={styles.courseCard}
-            onPress={() => router.push(`/course/${course.$id}`)}
+        {/* Video Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Get To Know Ayurveda ??</Text>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.videosContainer}
           >
-            <View style={styles.courseImagePlaceholder}>
-              <Ionicons name="book" size={24} color="#666" />
-              {course.isPopular && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>Popular</Text>
+            {[1, 2, 3, 4].map((item) => (
+              <TouchableOpacity 
+                key={item} 
+                style={styles.videoCard}
+                onPress={() => {
+                  // Handle video press
+                }}
+              >
+                <View style={styles.videoThumbnail}>
+                  <Ionicons name="play-circle" size={40} color="white" />
                 </View>
-              )}
-              {course.isNew && (
-                <View style={[styles.badge, styles.newBadge]}>
-                  <Text style={styles.badgeText}>New</Text>
+                <Text style={styles.videoTitle}>Video {item}</Text>
+                <Text style={styles.videoDuration}>10:00</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Courses Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Courses We Offer</Text>
+          <View style={styles.coursesGrid}>
+            {courses.map(course => (
+              <TouchableOpacity 
+                key={course.$id} 
+                style={styles.courseCard}
+                onPress={() => router.push(`/course/${course.$id}`)}
+              >
+                <View style={styles.courseImageContainer}>
+                  <View style={[styles.coursePlaceholder, { backgroundColor: '#E5FAF5' }]}>
+                    <Ionicons name="book-outline" size={32} color="#00B894" />
+                  </View>
+                  {course.isPopular && (
+                    <View style={styles.popularBadge}>
+                      <Text style={styles.badgeText}>Popular</Text>
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
-            <View style={styles.courseInfo}>
-              <Text style={styles.courseTitle}>{course.title}</Text>
-              <Text style={styles.instructorName}>{course.instructor}</Text>
-              <View style={styles.courseStats}>
-                <Text style={styles.lessonCount}>{course.totalLessons} lessons</Text>
-                <Text style={styles.duration}>{course.duration}</Text>
-              </View>
-              <Text style={styles.price}>${course.price}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
+                <View style={styles.courseInfo}>
+                  <Text style={styles.courseTitle} numberOfLines={2}>{course.title}</Text>
+                  <Text style={styles.courseInstructor}>{course.instructor}</Text>
+                  <View style={styles.courseStats}>
+                    <Text style={styles.courseDuration}>{course.duration}</Text>
+                    <Text style={styles.coursePrice}>${course.price}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
-      {/* All Courses Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>All Courses</Text>
-        <TouchableOpacity style={styles.filterButton}>
-          <Ionicons name="options-outline" size={20} color="#333" />
-          <Text style={styles.filterText}>Filters</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.allCoursesList}>
-        {courses.slice(2).map(course => (
-          <TouchableOpacity 
-            key={course.$id} 
-            style={styles.listCourseCard}
-            onPress={() => router.push(`/course/${course.$id}`)}
-          >
-            <View style={styles.listCourseImage}>
-              <Ionicons name="book" size={24} color="#666" />
-            </View>
-            <View style={styles.listCourseInfo}>
-              <Text style={styles.courseTitle}>{course.title}</Text>
-              <Text style={styles.instructorName}>{course.instructor}</Text>
-              <View style={styles.courseStats}>
-                <Text style={styles.lessonCount}>{course.totalLessons} lessons</Text>
-                <Text style={styles.duration}>{course.duration}</Text>
-              </View>
-              <Text style={styles.price}>${course.price}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Teachers Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Teachers</Text>
-        <TouchableOpacity onPress={() => {}}>
-          <Text style={styles.seeAll}>See all</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.teachersScroll}>
-        {teachers.map(teacher => (
-          <TouchableOpacity key={teacher.$id} style={styles.teacherCard}>
-            <View style={styles.teacherAvatar}>
-              <Ionicons name="person" size={30} color="#666" />
-            </View>
-            <Text style={styles.teacherName}>{teacher.name}</Text>
-            <Text style={styles.teacherTitle}>{teacher.title}</Text>
-          </TouchableOpacity>
-        ))}
+        {/* Bottom Spacing */}
+        <View style={styles.bottomSpace} />
       </ScrollView>
-    </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-    padding: 16,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
+  greetingSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    marginBottom: 16,
+  },
+  greeting: {
+    fontSize: 16,
+    color: '#666',
     marginBottom: 4,
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    marginBottom: 24,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
+  username: {
+    fontSize: 24,
+    fontWeight: '700',
     color: '#333',
   },
-  quickActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 24,
+  carouselContainer: {
+    marginTop: 16,
+    marginHorizontal: 16,
   },
-  quickActionButton: {
-    alignItems: 'center',
-    width: '23%',
-  },
-  quickActionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+  carouselItem: {
+    width: SCREEN_WIDTH - 32,
+    height: 200,
+    borderRadius: 16,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
-  quickActionText: {
-    fontSize: 12,
-    color: '#333',
-    textAlign: 'center',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  carouselIcon: {
     marginBottom: 16,
+  },
+  carouselContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  carouselTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  paginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D9D9D9',
+    marginHorizontal: 4,
+  },
+  paginationDotActive: {
+    backgroundColor: '#00B894',
+    width: 24,
+  },
+  section: {
+    marginTop: 24,
+    paddingHorizontal: 16,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
+    marginBottom: 16,
+    color: '#333',
   },
-  seeAll: {
-    fontSize: 14,
-    color: '#00B894',
+  videosContainer: {
+    marginLeft: -16,
+    paddingLeft: 16,
+  },
+  videoCard: {
+    width: 200,
+    marginRight: 16,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  videoThumbnail: {
+    width: '100%',
+    height: 120,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    backgroundColor: '#00B894',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoTitle: {
+    fontSize: 16,
     fontWeight: '500',
+    color: '#333',
+    marginTop: 8,
+    marginHorizontal: 12,
+  },
+  videoDuration: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+    marginBottom: 12,
+    marginHorizontal: 12,
   },
   coursesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: 24,
-    paddingHorizontal: 2,
   },
   courseCard: {
     width: '48%',
     marginBottom: 16,
     borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
     overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
-  courseImagePlaceholder: {
+  courseImageContainer: {
+    width: '100%',
     height: 120,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
     position: 'relative',
   },
-  badge: {
+  coursePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popularBadge: {
     position: 'absolute',
     top: 8,
     right: 8,
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#00B894',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
-  },
-  newBadge: {
-    backgroundColor: '#00B894',
   },
   badgeText: {
     color: '#fff',
@@ -296,105 +400,31 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   courseTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 16,
+    fontWeight: '500',
     color: '#333',
-  },
-  instructorName: {
-    fontSize: 12,
-    color: '#666',
     marginBottom: 4,
+  },
+  courseInstructor: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
   },
   courseStats: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
   },
-  lessonCount: {
-    fontSize: 12,
+  courseDuration: {
+    fontSize: 14,
     color: '#666',
   },
-  duration: {
-    fontSize: 12,
-    color: '#666',
-  },
-  price: {
+  coursePrice: {
     fontSize: 16,
     fontWeight: '600',
     color: '#00B894',
   },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  filterText: {
-    fontSize: 14,
-    color: '#333',
-    marginLeft: 4,
-  },
-  allCoursesList: {
-    marginBottom: 24,
-  },
-  listCourseCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  listCourseImage: {
-    width: 80,
+  bottomSpace: {
     height: 80,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  listCourseInfo: {
-    flex: 1,
-  },
-  teachersScroll: {
-    marginBottom: 24,
-  },
-  teacherCard: {
-    alignItems: 'center',
-    marginRight: 24,
-  },
-  teacherAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  teacherName: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  teacherTitle: {
-    fontSize: 12,
-    color: '#666',
-  },
-  welcomeSection: {
-    marginBottom: 24,
-  },
-  welcomeText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: '500',
   },
 });

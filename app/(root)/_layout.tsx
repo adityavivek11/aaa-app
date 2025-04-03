@@ -21,7 +21,7 @@ export default function AppLayout() {
 
   return (
     <SafeAreaProvider
-      style={{ backgroundColor: "#ffffff" }} // Light gray background to prevent white flash
+      style={{ backgroundColor: "#000000" }} // Light gray background to prevent white flash
     >
       <SafeAreaView
         style={{
