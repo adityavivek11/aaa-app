@@ -12,7 +12,7 @@ import {
   import { openAuthSessionAsync } from "expo-web-browser";
   
   export const config = {
-    platform: "com.jsm.restate",
+    platform: "com.company.myedtechapp",
     endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
     projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
     databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
@@ -44,7 +44,9 @@ import {
   
   export async function login() {
     try {
-      const redirectUri = Linking.createURL("/");
+      const redirectUri = Linking.createURL("/", {
+        scheme: "myapp"
+      });
   
       const response = await account.createOAuth2Token(
         OAuthProvider.Google,
